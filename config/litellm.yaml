@@ -1,0 +1,50 @@
+# LiteLLM 网关配置
+# 文档: https://docs.litellm.ai/docs/proxy/configs
+#
+# 请求流:
+#   Client ─► LiteLLM(:4000) ─► vLLM(127.0.0.1:8000) /v1/chat/completions
+# LiteLLM 同时暴露:
+#   POST /v1/chat/completions   (OpenAI)
+#   POST /v1/messages           (Anthropic, Claude Code 用)
+#   POST /v1/completions        (OpenAI legacy)
+#   GET  /v1/models
+#   POST /key/generate          (用 master_key 签发子 key)
+
+model_list:
+  - model_name: minimax-m2.5
+    litellm_params:
+      # openai/ 前缀告诉 LiteLLM 走 OpenAI 兼容协议去命中后端
+      model: openai/minimax-m2.5
+      api_base: http://127.0.0.1:8000/v1
+      # vLLM 不校验 key，但 openai sdk 要求有值，随便填
+      api_key: sk-vllm-local
+      # MiniMax 官方推荐采样参数
+      temperature: 1.0
+      top_p: 0.95
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/POSTGRES_URL
+  # 允许通过管理 API 动态增删模型 / key，并持久化到 DB
+  store_model_in_db: true
+  # 把完整 request/response JSON 落到 LiteLLM_SpendLogs.messages / .response
+  store_prompts_in_spend_logs: true
+
+litellm_settings:
+  # 把客户端传过来的非法/未知参数直接丢弃，避免 vLLM 报 422
+  drop_params: true
+  set_verbose: false
+  json_logs: true
+  # 关键：保留 prompt / completion 文本到日志，不要打码
+  turn_off_message_logging: false
+  # 请求超时（秒），长上下文场景可适当调大
+  request_timeout: 600
+  # 不挂外部回调（Langfuse / Langsmith 等），完全靠本机 Postgres 存储
+  success_callback: []
+  failure_callback: []
+
+router_settings:
+  # 只有一台后端，关掉冗余路由逻辑
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  timeout: 600

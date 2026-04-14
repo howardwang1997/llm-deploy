@@ -1,0 +1,26 @@
+[Unit]
+Description=vLLM serving MiniMax-M2.5 (8xH20)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=llm
+Group=llm
+EnvironmentFile=/etc/llm-deploy.env
+WorkingDirectory=/opt/llm-deploy
+ExecStart=/opt/llm-deploy/scripts/start_vllm.sh
+Restart=on-failure
+RestartSec=15
+# 模型加载 + CUDA graph 编译可能需要几分钟
+TimeoutStartSec=1800
+TimeoutStopSec=120
+KillSignal=SIGINT
+LimitNOFILE=1048576
+# vLLM 会 fork 多个 worker 进程，放开 nproc
+LimitNPROC=infinity
+# 让 systemd 把整棵进程树一起收掉
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

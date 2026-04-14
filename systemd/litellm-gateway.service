@@ -1,0 +1,23 @@
+[Unit]
+Description=LiteLLM gateway (OpenAI + Anthropic) in front of vLLM
+After=network-online.target postgresql.service vllm-minimax.service
+Wants=network-online.target
+Requires=vllm-minimax.service
+
+[Service]
+Type=simple
+User=llm
+Group=llm
+EnvironmentFile=/etc/llm-deploy.env
+WorkingDirectory=/opt/llm-deploy
+# 等 vLLM 的 /v1/models 可用再启动网关，避免首次请求打空
+ExecStartPre=/opt/llm-deploy/scripts/healthcheck.sh vllm
+ExecStart=/opt/llm-deploy/scripts/start_litellm.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=1800
+TimeoutStopSec=60
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
