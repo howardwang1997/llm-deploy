@@ -9,9 +9,9 @@ if [[ -f "$ENV_FILE" ]]; then
     set -a; source "$ENV_FILE"; set +a
 fi
 
-VENV_DIR=${VENV_DIR:-/AI4S/Users/howardwang/llm-deploy/venv}
 # shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
+source "$(dirname "${BASH_SOURCE[0]}")/_conda.sh"
+conda activate "$CONDA_ENV"
 
 : "${MODEL_PATH:?MODEL_PATH 未设置，请检查 $ENV_FILE}"
 if [[ ! -d "$MODEL_PATH" ]]; then

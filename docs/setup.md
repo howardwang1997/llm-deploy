@@ -7,9 +7,10 @@
 ## 0. 前置条件
 
 - `nvidia-smi` 可见 8 张 H20，驱动 ≥ 535，CUDA runtime 12.x。
+- **已装好 Miniconda / Anaconda**（Python 走 conda 管，不再依赖系统 `python3.11`）。交互 shell 里看到 `(base)` 前缀就说明装好了；否则先按常规流程装一份 Miniconda。
 - 机器可以通过局域网访问：
   - PyPI 镜像（或者配置了 HTTPS_PROXY 可访问 pypi.org）
-  - 操作系统包镜像（yum / apt），用于装 `python3.11` 和 `postgresql-server`
+  - 操作系统包镜像（yum / apt），用于装 `postgresql-server`
 - MiniMax-M2.5 权重已经在本机磁盘上，目录内含 `config.json`、`tokenizer*`、所有 `*.safetensors` shard。
 
 ## 1. 准备目录
@@ -20,7 +21,7 @@
 |------|------|
 | 本仓库代码 | `/AI4S/Users/howardwang/llm-deploy` |
 | MiniMax-M2.5 权重 | `/AI4S/Users/MiniMax-M2.5` |
-| Python venv | `/AI4S/Users/howardwang/llm-deploy/venv`（`install_deps.sh` 会自动建） |
+| Python 环境 | conda env `llm-deploy`（`install_deps.sh` 自动创建，Python 3.11） |
 
 如果是第一次上这台机器，`git clone` 或 `rsync` 到上述路径即可：
 
@@ -30,18 +31,20 @@ git clone <repo-url> /AI4S/Users/howardwang/llm-deploy
 # 或 rsync -a <source>/llm-deploy/ /AI4S/Users/howardwang/llm-deploy/
 ```
 
-> 下文所有命令都用 `/AI4S/Users/howardwang/llm-deploy` 作为仓库路径。如果你把仓库放在别处，把这段路径替换成实际位置即可（systemd unit 里的 `WorkingDirectory` / `ExecStart`、脚本里的 `VENV_DIR` / `LITELLM_CONFIG` 默认值也要跟着改）。
+> 下文所有命令都用 `/AI4S/Users/howardwang/llm-deploy` 作为仓库路径。如果你把仓库放在别处，把这段路径替换成实际位置即可（systemd unit 里的 `WorkingDirectory` / `ExecStart`、脚本里的 `LITELLM_CONFIG` 默认值也要跟着改）。
 
 ## 2. 装系统级依赖（通过局域网镜像）
 
 按你机器的发行版选一套装包：
 
+Python 由 conda 管，系统包只需要 Postgres：
+
 ```bash
 # CentOS / RHEL / AlibabaLinux
-yum install -y python3.11 postgresql-server postgresql-contrib
+yum install -y postgresql-server postgresql-contrib
 
 # Debian / Ubuntu
-apt-get install -y python3.11 python3.11-venv postgresql
+apt-get install -y postgresql
 ```
 
 接下来 Postgres 的 **初始化 + 启动** 分两种环境，下面第 2.A / 2.B 二选一。
@@ -104,22 +107,36 @@ bash /AI4S/Users/howardwang/llm-deploy/scripts/init_postgres.sh
 
 脚本会按 `POSTGRES_URL` 里的 user/password/dbname 建角色、建库、授权，并做一次连通性测试。
 
-## 5. 安装 Python 依赖
+## 5. 创建 conda env 并装 Python 依赖
 
 ```bash
 ENV_FILE=/etc/llm-deploy.env bash /AI4S/Users/howardwang/llm-deploy/scripts/install_deps.sh
 ```
 
+脚本行为：
+
+1. source `scripts/_conda.sh`，自动找到 conda 根目录（`CONDA_EXE` / `/opt/conda` / `~/miniconda3` 等），找不到会提示在 `/etc/llm-deploy.env` 里显式设置 `CONDA_BASE`。
+2. 如果 `CONDA_ENV`（默认 `llm-deploy`）不存在就 `conda create -n "$CONDA_ENV" python=3.11`，存在则复用。
+3. `conda activate "$CONDA_ENV"` 后用 `pip` 装 `vllm`、`litellm[proxy]`、`prisma`、`psycopg2-binary`，`pip` 走的镜像来自 env 里的 `PIP_INDEX_URL` / `HTTPS_PROXY`。
+4. 跑一次 `prisma generate` 让 LiteLLM 能用 Postgres。
+
 这一步最耗时（vLLM 会拉 torch、flash-attn、xformers 等大 wheel，总计几 GB）。如果卡在某个包上，通常是镜像里缺对应 CUDA 版本的 wheel —— 让运维补进镜像后重跑即可。
+
+想手动确认：
+
+```bash
+# 在交互 shell 里直接 activate 跑一下
+conda activate llm-deploy
+python -c "import vllm, litellm; print(vllm.__version__, litellm.__version__)"
+```
 
 ### 排障：prisma engine 下载失败
 
 LiteLLM 用 prisma 做 ORM，`prisma generate` 会去 `binaries.prisma.sh` 拉 query engine 二进制。如果被墙：
 
 ```bash
-# 让代理只对 prisma 的域名生效
 export HTTPS_PROXY=http://<proxy>:<port>
-source /AI4S/Users/howardwang/llm-deploy/venv/bin/activate
+conda activate llm-deploy
 python -m prisma generate --schema "$(python -c 'import litellm,os;print(os.path.join(os.path.dirname(litellm.__file__),"proxy","schema.prisma"))')"
 unset HTTPS_PROXY
 ```

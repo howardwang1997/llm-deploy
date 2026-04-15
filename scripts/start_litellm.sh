@@ -8,11 +8,11 @@ if [[ -f "$ENV_FILE" ]]; then
     set -a; source "$ENV_FILE"; set +a
 fi
 
-VENV_DIR=${VENV_DIR:-/AI4S/Users/howardwang/llm-deploy/venv}
 CONFIG=${LITELLM_CONFIG:-/AI4S/Users/howardwang/llm-deploy/config/litellm.yaml}
 
 # shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
+source "$(dirname "${BASH_SOURCE[0]}")/_conda.sh"
+conda activate "$CONDA_ENV"
 
 : "${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY 未设置}"
 : "${POSTGRES_URL:?POSTGRES_URL 未设置}"

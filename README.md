@@ -53,7 +53,8 @@ llm-deploy/
 
 - GPU 驱动 ≥ 535，`nvidia-smi` 可见 8 张 H20。
 - 局域网里有 PyPI 镜像或 HTTPS 代理，能拉 `vllm` / `litellm[proxy]`（及它们依赖的 torch / flash-attn CUDA wheel）。
-- 系统包镜像里有 `python3.11` 和 `postgresql-server`。
+- 已装好 Miniconda / Anaconda；服务跑在 conda env `llm-deploy` 里（由 `install_deps.sh` 自动创建，Python 3.11）。
+- 系统包镜像里有 `postgresql-server`。
 - MiniMax-M2.5 权重已在磁盘上，目录完整（`config.json` + `tokenizer*` + 所有 safetensors shard）。
 
 ## 不覆盖的场景
