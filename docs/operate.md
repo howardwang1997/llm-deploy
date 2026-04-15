@@ -2,7 +2,9 @@
 
 ## 服务生命周期
 
-所有命令都以 root 运行。
+所有命令都以 root 运行。按部署方式二选一。
+
+### 有 systemd 的机器
 
 ```bash
 # 状态
@@ -17,11 +19,32 @@ systemctl stop litellm-gateway vllm-minimax
 systemctl start vllm-minimax litellm-gateway
 ```
 
-> 无 systemd 环境（容器 / chroot）直接前台或 `nohup` 跑 `scripts/start_vllm.sh` 和 `scripts/start_litellm.sh`，或挂 `supervisord` / tmux 管生命周期。
+> 依赖顺序：`litellm-gateway` 在 unit 里声明了 `Requires=vllm-minimax.service`，stop vLLM 会连带停网关。
 
-> 注意依赖顺序：`litellm-gateway` 在 unit 里声明了 `Requires=vllm-minimax.service`，stop vLLM 会连带停网关。
+### 无 systemd 的机器（容器 / chroot）
+
+走 `nohup` + pid 文件的方式，参见 `docs/setup.md` 第 6.B 节。常用命令：
+
+```bash
+# 状态
+ps -ef | grep -E 'vllm serve|litellm --config' | grep -v grep
+
+# 停（顺序：先网关，再 vLLM）
+kill "$(cat /var/run/litellm-gateway.pid)" 2>/dev/null || pkill -f 'litellm --config'
+kill "$(cat /var/run/vllm-minimax.pid)"    2>/dev/null || pkill -f 'vllm serve'
+
+# 启（参照 setup.md 第 6.B 节的 nohup 命令）
+
+# 重启网关（改完 litellm.yaml 或 env 后，只重启网关，避免动 vLLM 冷启动）
+kill "$(cat /var/run/litellm-gateway.pid)" && sleep 1
+ENV_FILE=/etc/llm-deploy.env nohup bash /opt/llm-deploy/scripts/start_litellm.sh \
+    >> /var/log/llm-deploy/litellm.log 2>&1 &
+echo $! > /var/run/litellm-gateway.pid
+```
 
 ## 日志
+
+### systemd
 
 ```bash
 # 实时
@@ -33,6 +56,17 @@ journalctl -u vllm-minimax -n 500 --no-pager
 
 # 按时间段
 journalctl -u litellm-gateway --since "2 hours ago"
+```
+
+### 无 systemd
+
+日志落在 `/var/log/llm-deploy/` 下（参见 `setup.md` 第 6.B 节的 nohup 命令）：
+
+```bash
+tail -f /var/log/llm-deploy/vllm.log
+tail -f /var/log/llm-deploy/litellm.log
+
+tail -n 500 /var/log/llm-deploy/vllm.log
 ```
 
 ## 查看用户请求记录 / 语料
@@ -119,11 +153,15 @@ curl -X POST http://127.0.0.1:4000/key/delete \
 
 ## 升级 vLLM / LiteLLM
 
+systemd 环境：
+
 ```bash
 systemctl stop litellm-gateway vllm-minimax
 ENV_FILE=/etc/llm-deploy.env bash /opt/llm-deploy/scripts/install_deps.sh
 systemctl start vllm-minimax litellm-gateway
 ```
+
+无 systemd 环境：先 `kill` 掉两个进程（参见上面"服务生命周期"），跑 `install_deps.sh`，再按 `setup.md` 第 6.B 节的 `nohup` 命令重新拉起。
 
 ## 备份
 

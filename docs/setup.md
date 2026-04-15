@@ -24,38 +24,52 @@ rsync -a <source>/llm-deploy/ /opt/llm-deploy/
 
 ## 2. 装系统级依赖（通过局域网镜像）
 
-按你机器的发行版选一套：
+按你机器的发行版选一套装包：
 
 ```bash
 # CentOS / RHEL / AlibabaLinux
 yum install -y python3.11 postgresql-server postgresql-contrib
-/usr/bin/postgresql-setup --initdb
-systemctl enable --now postgresql
 
 # Debian / Ubuntu
 apt-get install -y python3.11 python3.11-venv postgresql
+```
+
+接下来 Postgres 的 **初始化 + 启动** 分两种环境，下面第 2.A / 2.B 二选一。
+
+### 2.A 有 systemd 的机器（标准裸机）
+
+```bash
+# RHEL 家族
+/usr/bin/postgresql-setup --initdb
+systemctl enable --now postgresql
+
+# Debian / Ubuntu: 装完包已经自动 initdb + start
 systemctl enable --now postgresql
 ```
 
-### 在没有 systemd 的环境里（容器 / chroot）
+### 2.B 无 systemd 的机器（容器 / chroot）
 
-如果 `systemctl` 不可用（`System has not been booted with systemd as init system`），postgres 手动初始化 + 启动：
+表现：`systemctl ...` 报 `System has not been booted with systemd as init system (PID 1). Can't operate.`，`postgresql-setup --initdb` 也跟着报 `FATAL: no db datadir (PGDATA) configured for 'postgresql.service' unit`（因为它读的是 systemd unit 里的 PGDATA）。
+
+绕开 `postgresql-setup`，直接调 `initdb` + `pg_ctl`：
 
 ```bash
-# PGDATA 目录（RHEL 家族默认）
-mkdir -p /var/lib/pgsql/data
+# PGDATA 目录（RHEL 家族默认位置；Debian 系用 /var/lib/postgresql/<ver>/main 也可以）
+export PGDATA=/var/lib/pgsql/data
+mkdir -p "$PGDATA"
 chown -R postgres:postgres /var/lib/pgsql
-runuser -u postgres -- /usr/bin/initdb -D /var/lib/pgsql/data
+
+# 初始化数据目录
+runuser -u postgres -- /usr/bin/initdb -D "$PGDATA"
 
 # 启动（日志写到 logfile）
-runuser -u postgres -- /usr/bin/pg_ctl -D /var/lib/pgsql/data \
-    -l /var/lib/pgsql/logfile start
+runuser -u postgres -- /usr/bin/pg_ctl -D "$PGDATA" -l /var/lib/pgsql/logfile start
 
 # 验证
 runuser -u postgres -- psql -c "SELECT version();"
 ```
 
-这种环境下也不能用 `systemctl` 起 `vllm-minimax` / `litellm-gateway`，改为前台 / `nohup` 直接跑 `scripts/start_vllm.sh` 和 `scripts/start_litellm.sh`，或者挂 `supervisord` / tmux。
+> 这种环境下后面第 6 步也要走无 systemd 的替代路径（第 6.B）。
 
 ## 3. 填写环境变量文件
 
@@ -102,21 +116,62 @@ unset HTTPS_PROXY
 
 或者提前把 prisma engine 二进制放到 `~/.cache/prisma-python/binaries/<version>/<hash>/` 下。
 
-## 6. 安装 systemd unit
+## 6. 拉起服务
+
+和第 2 步一样分两种路径，按你机器情况二选一。
+
+第一次启动 vLLM 会加载 ~460GB 权重到 8 张卡上，冷启动需要 3–10 分钟，耐心等。看到 `Uvicorn running on http://127.0.0.1:8000` 就是 vLLM 就绪；看到 `Uvicorn running on http://0.0.0.0:4000` 就是 LiteLLM 就绪。
+
+### 6.A 有 systemd 的机器
 
 ```bash
 cp /opt/llm-deploy/systemd/*.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now vllm-minimax.service litellm-gateway.service
+
+# watch 日志
+journalctl -u vllm-minimax -f
+journalctl -u litellm-gateway -f
 ```
 
-第一次启动 vLLM 会加载 ~460GB 权重到 8 张卡上，冷启动需要 3–10 分钟；watch：
+### 6.B 无 systemd 的机器（容器 / chroot）
+
+直接用 `nohup` 把两个启动脚本拉到后台，日志落盘到文件。先起 vLLM，等它就绪后再起 LiteLLM（LiteLLM 启动时会去打 `http://127.0.0.1:8000/v1/models`，空打会炸）。
 
 ```bash
-journalctl -u vllm-minimax -f
+mkdir -p /var/log/llm-deploy
+
+# 1. 拉起 vLLM
+ENV_FILE=/etc/llm-deploy.env nohup bash /opt/llm-deploy/scripts/start_vllm.sh \
+    >> /var/log/llm-deploy/vllm.log 2>&1 &
+echo $! > /var/run/vllm-minimax.pid
+
+# 2. 等 vLLM 就绪（脚本会轮询 /v1/models，最多等 10 分钟）
+ENV_FILE=/etc/llm-deploy.env bash /opt/llm-deploy/scripts/healthcheck.sh vllm
+
+# 3. 拉起 LiteLLM 网关
+ENV_FILE=/etc/llm-deploy.env nohup bash /opt/llm-deploy/scripts/start_litellm.sh \
+    >> /var/log/llm-deploy/litellm.log 2>&1 &
+echo $! > /var/run/litellm-gateway.pid
+
+# 4. watch 日志
+tail -f /var/log/llm-deploy/vllm.log
+tail -f /var/log/llm-deploy/litellm.log
 ```
 
-看到 `Uvicorn running on http://127.0.0.1:8000` 就是就绪。
+停 / 重启：
+
+```bash
+# 停（先停网关，再停 vLLM）
+kill "$(cat /var/run/litellm-gateway.pid)"
+kill "$(cat /var/run/vllm-minimax.pid)"
+
+# 如果 pid 文件丢了，按进程名杀
+pkill -f 'litellm --config'
+pkill -f 'vllm serve'
+```
+
+如果希望重启后自动拉起，挂一个 `supervisord` / `runit` / tmux session 管生命周期，这里不展开。
 
 ## 7. 端到端验证
 
