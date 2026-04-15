@@ -8,8 +8,8 @@ if [[ -f "$ENV_FILE" ]]; then
     set -a; source "$ENV_FILE"; set +a
 fi
 
-VENV_DIR=${VENV_DIR:-/opt/llm-deploy/venv}
-CONFIG=${LITELLM_CONFIG:-/opt/llm-deploy/config/litellm.yaml}
+VENV_DIR=${VENV_DIR:-/AI4S/Users/howardwang/llm-deploy/venv}
+CONFIG=${LITELLM_CONFIG:-/AI4S/Users/howardwang/llm-deploy/config/litellm.yaml}
 
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"

@@ -37,7 +37,7 @@ kill "$(cat /var/run/vllm-minimax.pid)"    2>/dev/null || pkill -f 'vllm serve'
 
 # 重启网关（改完 litellm.yaml 或 env 后，只重启网关，避免动 vLLM 冷启动）
 kill "$(cat /var/run/litellm-gateway.pid)" && sleep 1
-ENV_FILE=/etc/llm-deploy.env nohup bash /opt/llm-deploy/scripts/start_litellm.sh \
+ENV_FILE=/etc/llm-deploy.env nohup bash /AI4S/Users/howardwang/llm-deploy/scripts/start_litellm.sh \
     >> /var/log/llm-deploy/litellm.log 2>&1 &
 echo $! > /var/run/litellm-gateway.pid
 ```
@@ -157,7 +157,7 @@ systemd 环境：
 
 ```bash
 systemctl stop litellm-gateway vllm-minimax
-ENV_FILE=/etc/llm-deploy.env bash /opt/llm-deploy/scripts/install_deps.sh
+ENV_FILE=/etc/llm-deploy.env bash /AI4S/Users/howardwang/llm-deploy/scripts/install_deps.sh
 systemctl start vllm-minimax litellm-gateway
 ```
 

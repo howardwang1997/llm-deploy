@@ -14,13 +14,23 @@
 
 ## 1. 准备目录
 
-```bash
-# 仓库目录（本仓库的代码放这里）
-mkdir -p /opt/llm-deploy
+仓库代码和模型权重都放在 `/AI4S/Users/` 下：
 
-# 把仓库内容放进去（在本机 git clone，或从另一台机器 rsync 过来）
-rsync -a <source>/llm-deploy/ /opt/llm-deploy/
+| 用途 | 路径 |
+|------|------|
+| 本仓库代码 | `/AI4S/Users/howardwang/llm-deploy` |
+| MiniMax-M2.5 权重 | `/AI4S/Users/MiniMax-M2.5` |
+| Python venv | `/AI4S/Users/howardwang/llm-deploy/venv`（`install_deps.sh` 会自动建） |
+
+如果是第一次上这台机器，`git clone` 或 `rsync` 到上述路径即可：
+
+```bash
+mkdir -p /AI4S/Users/howardwang
+git clone <repo-url> /AI4S/Users/howardwang/llm-deploy
+# 或 rsync -a <source>/llm-deploy/ /AI4S/Users/howardwang/llm-deploy/
 ```
+
+> 下文所有命令都用 `/AI4S/Users/howardwang/llm-deploy` 作为仓库路径。如果你把仓库放在别处，把这段路径替换成实际位置即可（systemd unit 里的 `WorkingDirectory` / `ExecStart`、脚本里的 `VENV_DIR` / `LITELLM_CONFIG` 默认值也要跟着改）。
 
 ## 2. 装系统级依赖（通过局域网镜像）
 
@@ -74,14 +84,14 @@ runuser -u postgres -- psql -c "SELECT version();"
 ## 3. 填写环境变量文件
 
 ```bash
-cp /opt/llm-deploy/config/env.example /etc/llm-deploy.env
+cp /AI4S/Users/howardwang/llm-deploy/config/env.example /etc/llm-deploy.env
 chmod 600 /etc/llm-deploy.env
 ${EDITOR:-vi} /etc/llm-deploy.env
 ```
 
 至少要设置：
 
-- `MODEL_PATH` — MiniMax-M2.5 权重目录绝对路径
+- `MODEL_PATH` — MiniMax-M2.5 权重目录绝对路径（本机为 `/AI4S/Users/MiniMax-M2.5`，`env.example` 已填好）
 - `LITELLM_MASTER_KEY` — `openssl rand -hex 24` 生成一个
 - `POSTGRES_URL` — 例如 `postgresql://litellm:$(openssl rand -hex 16)@127.0.0.1:5432/litellm`
 - `PIP_INDEX_URL` + `PIP_TRUSTED_HOST`（或 `HTTPS_PROXY`），指向局域网镜像
@@ -89,7 +99,7 @@ ${EDITOR:-vi} /etc/llm-deploy.env
 ## 4. 初始化 Postgres
 
 ```bash
-bash /opt/llm-deploy/scripts/init_postgres.sh
+bash /AI4S/Users/howardwang/llm-deploy/scripts/init_postgres.sh
 ```
 
 脚本会按 `POSTGRES_URL` 里的 user/password/dbname 建角色、建库、授权，并做一次连通性测试。
@@ -97,7 +107,7 @@ bash /opt/llm-deploy/scripts/init_postgres.sh
 ## 5. 安装 Python 依赖
 
 ```bash
-ENV_FILE=/etc/llm-deploy.env bash /opt/llm-deploy/scripts/install_deps.sh
+ENV_FILE=/etc/llm-deploy.env bash /AI4S/Users/howardwang/llm-deploy/scripts/install_deps.sh
 ```
 
 这一步最耗时（vLLM 会拉 torch、flash-attn、xformers 等大 wheel，总计几 GB）。如果卡在某个包上，通常是镜像里缺对应 CUDA 版本的 wheel —— 让运维补进镜像后重跑即可。
@@ -109,7 +119,7 @@ LiteLLM 用 prisma 做 ORM，`prisma generate` 会去 `binaries.prisma.sh` 拉 q
 ```bash
 # 让代理只对 prisma 的域名生效
 export HTTPS_PROXY=http://<proxy>:<port>
-source /opt/llm-deploy/venv/bin/activate
+source /AI4S/Users/howardwang/llm-deploy/venv/bin/activate
 python -m prisma generate --schema "$(python -c 'import litellm,os;print(os.path.join(os.path.dirname(litellm.__file__),"proxy","schema.prisma"))')"
 unset HTTPS_PROXY
 ```
@@ -125,7 +135,7 @@ unset HTTPS_PROXY
 ### 6.A 有 systemd 的机器
 
 ```bash
-cp /opt/llm-deploy/systemd/*.service /etc/systemd/system/
+cp /AI4S/Users/howardwang/llm-deploy/systemd/*.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now vllm-minimax.service litellm-gateway.service
 
@@ -142,15 +152,15 @@ journalctl -u litellm-gateway -f
 mkdir -p /var/log/llm-deploy
 
 # 1. 拉起 vLLM
-ENV_FILE=/etc/llm-deploy.env nohup bash /opt/llm-deploy/scripts/start_vllm.sh \
+ENV_FILE=/etc/llm-deploy.env nohup bash /AI4S/Users/howardwang/llm-deploy/scripts/start_vllm.sh \
     >> /var/log/llm-deploy/vllm.log 2>&1 &
 echo $! > /var/run/vllm-minimax.pid
 
 # 2. 等 vLLM 就绪（脚本会轮询 /v1/models，最多等 10 分钟）
-ENV_FILE=/etc/llm-deploy.env bash /opt/llm-deploy/scripts/healthcheck.sh vllm
+ENV_FILE=/etc/llm-deploy.env bash /AI4S/Users/howardwang/llm-deploy/scripts/healthcheck.sh vllm
 
 # 3. 拉起 LiteLLM 网关
-ENV_FILE=/etc/llm-deploy.env nohup bash /opt/llm-deploy/scripts/start_litellm.sh \
+ENV_FILE=/etc/llm-deploy.env nohup bash /AI4S/Users/howardwang/llm-deploy/scripts/start_litellm.sh \
     >> /var/log/llm-deploy/litellm.log 2>&1 &
 echo $! > /var/run/litellm-gateway.pid
 
@@ -176,7 +186,7 @@ pkill -f 'vllm serve'
 ## 7. 端到端验证
 
 ```bash
-bash /opt/llm-deploy/scripts/healthcheck.sh e2e
+bash /AI4S/Users/howardwang/llm-deploy/scripts/healthcheck.sh e2e
 ```
 
 应看到两条 JSON 响应（OpenAI 和 Anthropic 协议各一发）。

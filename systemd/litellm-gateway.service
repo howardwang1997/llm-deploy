@@ -9,10 +9,10 @@ Type=simple
 User=root
 Group=root
 EnvironmentFile=/etc/llm-deploy.env
-WorkingDirectory=/opt/llm-deploy
+WorkingDirectory=/AI4S/Users/howardwang/llm-deploy
 # 等 vLLM 的 /v1/models 可用再启动网关，避免首次请求打空
-ExecStartPre=/opt/llm-deploy/scripts/healthcheck.sh vllm
-ExecStart=/opt/llm-deploy/scripts/start_litellm.sh
+ExecStartPre=/AI4S/Users/howardwang/llm-deploy/scripts/healthcheck.sh vllm
+ExecStart=/AI4S/Users/howardwang/llm-deploy/scripts/start_litellm.sh
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=1800

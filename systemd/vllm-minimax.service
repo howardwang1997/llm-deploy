@@ -8,8 +8,8 @@ Type=simple
 User=root
 Group=root
 EnvironmentFile=/etc/llm-deploy.env
-WorkingDirectory=/opt/llm-deploy
-ExecStart=/opt/llm-deploy/scripts/start_vllm.sh
+WorkingDirectory=/AI4S/Users/howardwang/llm-deploy
+ExecStart=/AI4S/Users/howardwang/llm-deploy/scripts/start_vllm.sh
 Restart=on-failure
 RestartSec=15
 # 模型加载 + CUDA graph 编译可能需要几分钟

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 安装 vLLM + LiteLLM 及其运行依赖到 /opt/llm-deploy/venv
+# 安装 vLLM + LiteLLM 及其运行依赖到 /AI4S/Users/howardwang/llm-deploy/venv
 # 通过 /etc/llm-deploy.env 里的 PIP_INDEX_URL / HTTPS_PROXY 走局域网镜像。
 set -euo pipefail
 
 ENV_FILE=${ENV_FILE:-/etc/llm-deploy.env}
-VENV_DIR=${VENV_DIR:-/opt/llm-deploy/venv}
+VENV_DIR=${VENV_DIR:-/AI4S/Users/howardwang/llm-deploy/venv}
 PY_BIN=${PY_BIN:-python3.11}
 
 if [[ -f "$ENV_FILE" ]]; then
