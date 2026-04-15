@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=llm
-Group=llm
+User=root
+Group=root
 EnvironmentFile=/etc/llm-deploy.env
 WorkingDirectory=/opt/llm-deploy
 ExecStart=/opt/llm-deploy/scripts/start_vllm.sh

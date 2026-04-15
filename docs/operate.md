@@ -2,18 +2,22 @@
 
 ## 服务生命周期
 
+所有命令都以 root 运行。
+
 ```bash
 # 状态
-sudo systemctl status vllm-minimax litellm-gateway
+systemctl status vllm-minimax litellm-gateway
 
 # 重启（改 config/litellm.yaml 或 /etc/llm-deploy.env 后）
-sudo systemctl restart vllm-minimax     # 重载 vLLM，耗时 3-10 分钟
-sudo systemctl restart litellm-gateway  # 只重载网关，秒级
+systemctl restart vllm-minimax     # 重载 vLLM，耗时 3-10 分钟
+systemctl restart litellm-gateway  # 只重载网关，秒级
 
 # 停止 / 启动
-sudo systemctl stop litellm-gateway vllm-minimax
-sudo systemctl start vllm-minimax litellm-gateway
+systemctl stop litellm-gateway vllm-minimax
+systemctl start vllm-minimax litellm-gateway
 ```
+
+> 无 systemd 环境（容器 / chroot）直接前台或 `nohup` 跑 `scripts/start_vllm.sh` 和 `scripts/start_litellm.sh`，或挂 `supervisord` / tmux 管生命周期。
 
 > 注意依赖顺序：`litellm-gateway` 在 unit 里声明了 `Requires=vllm-minimax.service`，stop vLLM 会连带停网关。
 
@@ -116,9 +120,9 @@ curl -X POST http://127.0.0.1:4000/key/delete \
 ## 升级 vLLM / LiteLLM
 
 ```bash
-sudo systemctl stop litellm-gateway vllm-minimax
-sudo -u llm ENV_FILE=/etc/llm-deploy.env bash /opt/llm-deploy/scripts/install_deps.sh
-sudo systemctl start vllm-minimax litellm-gateway
+systemctl stop litellm-gateway vllm-minimax
+ENV_FILE=/etc/llm-deploy.env bash /opt/llm-deploy/scripts/install_deps.sh
+systemctl start vllm-minimax litellm-gateway
 ```
 
 ## 备份

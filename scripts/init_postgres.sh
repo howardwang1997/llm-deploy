@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 初始化 LiteLLM 使用的 Postgres 库和用户。
-# 前置: postgresql-server 已通过局域网 yum/apt 镜像装好并 systemctl start。
-#       本脚本以 postgres OS 用户身份执行 psql，所以需要 sudo。
+# 前置: postgresql-server 已装好并启动（systemd 或 pg_ctl 均可）。
+#       本脚本以 root 运行，内部通过 runuser 切到 postgres OS 用户执行 psql。
 set -euo pipefail
 
 ENV_FILE=${ENV_FILE:-/etc/llm-deploy.env}
@@ -27,13 +27,13 @@ PY
 source /tmp/pg_parts.env
 rm -f /tmp/pg_parts.env
 
-if ! systemctl is-active --quiet postgresql; then
-    echo "[init_postgres] Postgres 未启动，尝试启动..."
-    sudo systemctl start postgresql
+if ! runuser -u postgres -- psql -c 'SELECT 1' >/dev/null 2>&1; then
+    echo "[init_postgres] Postgres 未就绪，请先启动（systemctl start postgresql 或 pg_ctl -D \$PGDATA start）" >&2
+    exit 1
 fi
 
 echo "[init_postgres] 创建角色 $PG_USER（若已存在则更新密码）"
-sudo -u postgres psql <<SQL
+runuser -u postgres -- psql <<SQL
 DO \$\$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$PG_USER') THEN
@@ -46,12 +46,12 @@ END
 SQL
 
 echo "[init_postgres] 创建数据库 $PG_DB（若已存在则跳过）"
-sudo -u postgres psql <<SQL
+runuser -u postgres -- psql <<SQL
 SELECT 'CREATE DATABASE "$PG_DB" OWNER "$PG_USER"'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$PG_DB')\gexec
 SQL
 
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"$PG_DB\" TO \"$PG_USER\";"
+runuser -u postgres -- psql -c "GRANT ALL PRIVILEGES ON DATABASE \"$PG_DB\" TO \"$PG_USER\";"
 
 echo "[init_postgres] 验证连接"
 PGPASSWORD="$PG_PASS" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "SELECT 1;" >/dev/null

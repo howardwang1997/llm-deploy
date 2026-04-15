@@ -6,8 +6,8 @@ Requires=vllm-minimax.service
 
 [Service]
 Type=simple
-User=llm
-Group=llm
+User=root
+Group=root
 EnvironmentFile=/etc/llm-deploy.env
 WorkingDirectory=/opt/llm-deploy
 # 等 vLLM 的 /v1/models 可用再启动网关，避免首次请求打空
