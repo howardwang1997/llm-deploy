@@ -127,7 +127,7 @@ ENV_FILE=/etc/llm-deploy.env bash /AI4S/Users/howardwang/llm-deploy/scripts/inst
 ```bash
 # 在交互 shell 里直接 activate 跑一下
 conda activate llm-deploy
-python -c "import vllm, litellm; print(vllm.__version__, litellm.__version__)"
+python -c "import vllm; print('vllm', vllm.__version__)" && litellm --version
 ```
 
 ### 排障：prisma engine 下载失败
