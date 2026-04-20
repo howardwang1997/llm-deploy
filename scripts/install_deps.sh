@@ -44,6 +44,15 @@ pip install "${PIP_ARGS[@]}" -U vllm
 echo "[install_deps] 安装 LiteLLM proxy + Postgres 驱动"
 pip install "${PIP_ARGS[@]}" -U "litellm[proxy]" prisma psycopg2-binary
 
+echo "[install_deps] 安装 admin-api 依赖（fastapi / uvicorn / httpx）"
+# 这三个包 litellm[proxy] 已经间接拉进来，显式固定避免后续 litellm 升级断链
+pip install "${PIP_ARGS[@]}" -U fastapi "uvicorn[standard]" httpx
+
+if [[ "${INSTALL_DEV:-0}" == "1" ]]; then
+    echo "[install_deps] INSTALL_DEV=1：额外安装测试依赖（pytest）"
+    pip install "${PIP_ARGS[@]}" -U -r "$(dirname "${BASH_SOURCE[0]}")/../requirements-dev.txt"
+fi
+
 echo "[install_deps] 生成 LiteLLM 的 prisma client（离线机器首次会下载 prisma engine，若失败请看 docs/setup.md 的排障）"
 python -m prisma generate --schema "$(python -c 'import litellm, os; print(os.path.join(os.path.dirname(litellm.__file__), "proxy", "schema.prisma"))')" || true
 
@@ -51,3 +60,4 @@ echo "[install_deps] 完成。"
 echo "  conda env: $CONDA_ENV  (base=$CONDA_BASE)"
 echo "  vLLM: $(vllm --version 2>/dev/null || echo unknown)"
 echo "  LiteLLM: $(litellm --version 2>/dev/null || echo unknown)"
+echo "  FastAPI: $(python -c 'import fastapi; print(fastapi.__version__)' 2>/dev/null || echo unknown)"

@@ -218,3 +218,59 @@ curl http://<h20-host>:4000/v1/models \
 应返回 `{"data":[{"id":"minimax-m2.5",...}]}`。
 
 完成。接入客户端见 `docs/clients.md`，日常运维见 `docs/operate.md`。
+
+## 8. （可选）启用 admin-api 运维自助服务
+
+admin-api 是 LiteLLM 的 sidecar（默认端口 4100），给 IT / HR 一个：
+- 上传工号姓名白名单；
+- 员工用 (工号, 姓名) 自助领 / 轮换子 key 的入口。
+
+master key 永远只在 admin-api 进程内使用，员工拿到的都是带预算 / 模型白名单 / 有效期的子 key。
+
+### 8.1 补 env 变量
+
+在 `/etc/llm-deploy.env` 末尾加上（模板见 `config/env.example` 最底）：
+
+```bash
+ADMIN_API_PORT=4100
+ADMIN_API_KEY=$(openssl rand -hex 24)          # 独立于 LITELLM_MASTER_KEY
+# 以下留空走内置默认值也可以
+ADMIN_DEFAULT_BUDGET=50
+ADMIN_DEFAULT_BUDGET_DURATION=30d
+ADMIN_DEFAULT_KEY_DURATION=180d
+ADMIN_ALLOWED_MODELS=minimax-m2.5
+ADMIN_RATE_LIMIT_PER_IP=5/600
+LITELLM_INTERNAL_URL=http://127.0.0.1:4000
+```
+
+### 8.2 装依赖
+
+第 5 步的 `install_deps.sh` 已经把 `fastapi / uvicorn / httpx` 装进 `llm-deploy` conda env，无需单独再跑。若是老机器升级，重跑一次 `install_deps.sh` 即可。
+
+### 8.3 拉起
+
+有 systemd：
+
+```bash
+cp /AI4S/Users/howardwang/llm-deploy/systemd/admin-api.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now admin-api.service
+journalctl -u admin-api -f
+```
+
+无 systemd：
+
+```bash
+ENV_FILE=/etc/llm-deploy.env nohup bash /AI4S/Users/howardwang/llm-deploy/scripts/start_admin_api.sh \
+    >> /var/log/llm-deploy/admin-api.log 2>&1 &
+echo $! > /var/run/admin-api.pid
+```
+
+探针：
+
+```bash
+bash /AI4S/Users/howardwang/llm-deploy/scripts/healthcheck.sh admin
+# 期望: {"status":"ok","db":"ok"}
+```
+
+端到端：参见 `docs/operate.md` 的"自助签发 API key"章节，curl 三连（名单上传 → register → /v1/chat/completions）。

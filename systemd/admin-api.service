@@ -1,0 +1,23 @@
+[Unit]
+Description=admin-api (roster + self-service API key issuance) sidecar to LiteLLM
+After=network-online.target postgresql.service litellm-gateway.service
+Wants=network-online.target
+Requires=litellm-gateway.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/llm-deploy.env
+WorkingDirectory=/AI4S/Users/howardwang/llm-deploy
+# 等 LiteLLM /health/readiness 就绪再启 admin-api，签发 key 才不会打空
+ExecStartPre=/AI4S/Users/howardwang/llm-deploy/scripts/healthcheck.sh gateway
+ExecStart=/AI4S/Users/howardwang/llm-deploy/scripts/start_admin_api.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=600
+TimeoutStopSec=30
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

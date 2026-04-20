@@ -118,27 +118,108 @@ psql "$POSTGRES_URL" -Atc \
 
 ## 管理 API key（多租户）
 
-master key 不建议分发给终端用户，用它来签发子 key：
+**推荐通过 admin-api（`:4100`）操作**。它把名单管理和自助签发都包住了，master key 留在服务进程内，不下发、不进 shell history。部署方式见 `setup.md` 第 8 节。
+
+### admin-api：管理员侧
+
+拿 `ADMIN_API_KEY`（在 `/etc/llm-deploy.env` 里）做 Bearer 鉴权。以下命令在任意内网机器上都能跑。
 
 ```bash
-# 为用户 alice 签发一个 key，日预算 10 美元等价 token
+ADMIN=<ADMIN_API_KEY>
+BASE=http://<h20-host>:4100
+
+# 1. 批量上传工号 / 姓名白名单（UPSERT；单次最多 10000 条）
+curl -sX POST "$BASE/admin/roster/bulk" \
+  -H "Authorization: Bearer $ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{"entries":[
+        {"employee_id":"E001","name":"张三"},
+        {"employee_id":"E002","name":"李四"}
+      ]}'
+# => {"inserted":2,"updated":0,"unchanged":0}
+
+# 2. 名单分页 / 搜索（q 工号或姓名模糊匹配）
+curl -s "$BASE/admin/roster?limit=50&offset=0&q=张" \
+  -H "Authorization: Bearer $ADMIN"
+
+# 3. 单条详情（含是否已领 key、key 前缀）
+curl -s "$BASE/admin/roster/E001" -H "Authorization: Bearer $ADMIN"
+
+# 4. 删除单条（自动作废其已签发 key）
+curl -sX DELETE "$BASE/admin/roster/E001" -H "Authorization: Bearer $ADMIN"
+
+# 5. 用量汇总：工号、姓名、key 前缀、spend、max_budget、请求数、token 数
+curl -s "$BASE/admin/usage" -H "Authorization: Bearer $ADMIN"
+curl -s "$BASE/admin/usage?employee_id=E001" -H "Authorization: Bearer $ADMIN"
+```
+
+### admin-api：员工侧
+
+员工不需要任何凭据，只要自己的工号 + 姓名与名单一致就能领 key。所有 `/self/*` 都按来源 IP 做滑窗频控（默认 5 次 / 10 分钟）。
+
+```bash
+BASE=http://<h20-host>:4100
+
+# 自助领 key（幂等：已有 key 则签新的并作废旧的）
+curl -sX POST "$BASE/self/register" \
+  -H "Content-Type: application/json" \
+  -d '{"employee_id":"E001","name":"张三"}'
+# => {"api_key":"sk-...","key_prefix":"sk-...","expires":"...","max_budget":50,"models":["minimax-m2.5"]}
+
+# key 丢了 / 怀疑泄漏：主动换新 key（效果同 /self/register）
+curl -sX POST "$BASE/self/rotate" \
+  -H "Content-Type: application/json" \
+  -d '{"employee_id":"E001","name":"张三"}'
+
+# 查自己登记状态（不回显 key 原文）
+curl -sX POST "$BASE/self/status" \
+  -H "Content-Type: application/json" \
+  -d '{"employee_id":"E001","name":"张三"}'
+```
+
+拿到的 `api_key` 直接填进任何客户端（见 `clients.md`）。**注意响应只返回一次，员工自己保存好；丢了就 /rotate。**
+
+### 应急：绕过 admin-api 直接调 LiteLLM
+
+admin-api 挂掉或需要做奇怪参数（自定义 budget / 模型白名单）时，可以拿 master key 直接调 LiteLLM。`/key/delete` 支持两种删法：**按 key 原文用 `keys`，按 alias 用 `key_aliases`**——admin-api 内部走后者（alias 可从 `admin_employee_keys.litellm_key_alias` 查到）。
+
+```bash
 curl -X POST http://127.0.0.1:4000/key/generate \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{"user_id":"alice","max_budget":10,"budget_duration":"1d","models":["minimax-m2.5"]}'
 
-# 查所有 key
 curl http://127.0.0.1:4000/key/info \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY"
 
-# 删除
+# 按 key 原文删
 curl -X POST http://127.0.0.1:4000/key/delete \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{"keys":["sk-..."]}'
+
+# 按 alias 删（admin-api 的内部语义）
+curl -X POST http://127.0.0.1:4000/key/delete \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_aliases":["emp-E001-1700000000"]}'
 ```
 
-签发的子 key 直接就可以填到客户端（见 `clients.md`）。
+这么下发的 key 不会在 `admin_employee_keys` 里留记录，用量汇总看不到（但 `LiteLLM_SpendLogs` 仍有完整日志）。
+
+### admin-api 错误码对照
+
+所有错误响应统一形如 `{"error": "<code>", "message": "<人读文本>"}`。
+
+| HTTP | error             | 触发条件                                              |
+|------|-------------------|---------------------------------------------------|
+| 400  | validation_error  | 请求体字段缺失/超长/空（FastAPI 原始错误也会出现在这里） |
+| 401  | unauthorized      | `/admin/*` Bearer 缺失或错误                         |
+| 403  | identity_mismatch | `/self/*` 工号或姓名不在名单里（不区分两者，防嗅探）   |
+| 404  | not_found         | `/admin/roster/{id}` GET/DELETE 时工号不在名单         |
+| 429  | rate_limited      | `/self/*` 同一 IP 超过 `ADMIN_RATE_LIMIT_PER_IP`      |
+| 502  | litellm_unavailable | httpx 连不上 LiteLLM 或 LiteLLM 返 5xx              |
+| 502  | litellm_bad_response | LiteLLM 返回里没有 `key` / `token` 字段             |
 
 ## 常见故障
 
@@ -169,3 +250,24 @@ systemctl start vllm-minimax litellm-gateway
 
 1. `/etc/llm-deploy.env`（含 master key 和 DB 密码）
 2. Postgres 库 `litellm`：`pg_dump "$POSTGRES_URL" > litellm-$(date +%F).sql`
+
+## 跑 admin-api 测试
+
+测试用 `FakeDB` + `httpx.MockTransport` 打桩，**不连真实 Postgres / LiteLLM**，纯进程内。
+
+```bash
+# 1. 装测试依赖（只在第一次跑测试时做一次）
+INSTALL_DEV=1 bash scripts/install_deps.sh
+# 或手动：
+# source scripts/_conda.sh && conda activate llm-deploy && pip install -r requirements-dev.txt
+
+# 2. 运行全部测试
+cd /AI4S/Users/howardwang/llm-deploy
+pytest -q
+
+# 3. 只跑某个模块 / 某个用例
+pytest tests/test_routes_self.py -q
+pytest tests/test_routes_self.py::TestSelfRegister::test_success_returns_full_key -q
+```
+
+写新测试的坑位：`admin_api.config.load()` 在 import 时就执行，`tests/conftest.py` 已经在顶部 `os.environ.setdefault` 了所需的变量；新增测试若要自定义 `Settings`，直接构造 `Settings(...)` 而不是再 import main。

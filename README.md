@@ -6,20 +6,25 @@
 
 ```
 Client (LAN)                           H20 host
-┌──────────────┐                       ┌─────────────────────────────────┐
-│ Claude Code  │── Anthropic ────┐     │                                 │
-│ OpenCode     │── OpenAI ───────┤     │  LiteLLM :4000 ──► vLLM :8000   │
-│ OpenAI SDK   │── OpenAI ───────┘     │       │               │         │
-│ curl         │── either ────────────►│       ▼               ▼         │
-└──────────────┘                       │   Postgres       8× H20 GPU     │
-                                       │  (全量日志)                     │
-                                       └─────────────────────────────────┘
+┌──────────────┐                       ┌──────────────────────────────────────┐
+│ Claude Code  │── Anthropic ────┐     │                                      │
+│ OpenCode     │── OpenAI ───────┤     │  LiteLLM :4000 ──► vLLM :8000        │
+│ OpenAI SDK   │── OpenAI ───────┤     │       │               │              │
+│ curl         │── either ───────┤     │       ▼               ▼              │
+│              │                 │     │   Postgres       8× H20 GPU          │
+│ IT / 员工    │── admin-api ────┼────►│   (全量日志)                         │
+└──────────────┘                 │     │       ▲                              │
+                                 │     │       │                              │
+                                 └────►│  admin-api :4100 ──► LiteLLM /key/*  │
+                                       │  (名单 + 自助领 key)                 │
+                                       └──────────────────────────────────────┘
 ```
 
 - **vLLM**：只监听 `127.0.0.1:8000`，TP=8 + expert-parallel 跑 MiniMax-M2.5。
 - **LiteLLM**：监听 `0.0.0.0:4000`，对外入口。同时支持 OpenAI `/v1/chat/completions` 和 Anthropic `/v1/messages`，带 master key 鉴权和完整 prompt/completion 审计日志。
-- **Postgres**：本机运行，存 LiteLLM 的 key、额度、完整请求/响应记录。
-- **systemd**：`vllm-minimax.service` + `litellm-gateway.service` 两个 unit 管生命周期，后者依赖前者。
+- **admin-api**：监听 `0.0.0.0:4100`，管理员上传工号名单、员工自助 (工号+姓名) 领 / 轮换子 key；master key 只在它进程内使用。
+- **Postgres**：本机运行，存 LiteLLM 的 key、额度、完整请求/响应记录，以及 admin-api 的工号名单。
+- **systemd**：`vllm-minimax.service` + `litellm-gateway.service` + `admin-api.service` 三个 unit 管生命周期，按依赖顺序启动。
 
 ## 目录
 
@@ -36,7 +41,9 @@ llm-deploy/
 │   └── healthcheck.sh       # vllm / gateway / e2e 三种探活模式
 ├── systemd/
 │   ├── vllm-minimax.service
-│   └── litellm-gateway.service
+│   ├── litellm-gateway.service
+│   └── admin-api.service
+├── admin_api/               # 运维自助层（FastAPI），名单管理 + 员工自助签 key
 └── docs/
     ├── setup.md             # 首次部署从零到跑通
     ├── operate.md           # 日常运维、日志、查询语料、管理 API key

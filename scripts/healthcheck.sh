@@ -2,6 +2,7 @@
 # 用法:
 #   healthcheck.sh vllm       # 轮询等待 vLLM /v1/models 就绪（systemd ExecStartPre 用）
 #   healthcheck.sh gateway    # 检查 LiteLLM 网关
+#   healthcheck.sh admin      # 检查 admin-api /healthz
 #   healthcheck.sh e2e        # 端到端 smoke test: OpenAI + Anthropic 各打一发
 set -euo pipefail
 
@@ -13,6 +14,7 @@ fi
 
 VLLM_PORT=${VLLM_PORT:-8000}
 LITELLM_PORT=${LITELLM_PORT:-4000}
+ADMIN_API_PORT=${ADMIN_API_PORT:-4100}
 TIMEOUT=${HEALTHCHECK_TIMEOUT:-600}
 
 wait_for() {
@@ -35,6 +37,9 @@ case "${1:-}" in
     gateway)
         wait_for "http://127.0.0.1:${LITELLM_PORT}/health/readiness" gateway
         ;;
+    admin)
+        wait_for "http://127.0.0.1:${ADMIN_API_PORT}/healthz" admin-api
+        ;;
     e2e)
         : "${LITELLM_MASTER_KEY:?}"
         BASE="http://127.0.0.1:${LITELLM_PORT}"
@@ -54,7 +59,7 @@ case "${1:-}" in
             | python3 -m json.tool
         ;;
     *)
-        echo "usage: $0 {vllm|gateway|e2e}" >&2
+        echo "usage: $0 {vllm|gateway|admin|e2e}" >&2
         exit 2
         ;;
 esac
