@@ -42,7 +42,7 @@ case "${1:-}" in
         curl -sf -X POST "$BASE/v1/chat/completions" \
             -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"model":"minimax-m2.5","messages":[{"role":"user","content":"say hi in 3 words"}],"max_tokens":32}' \
+            -d '{"model":"minimax-m2.5","messages":[{"role":"user","content":"say hi in 3 words"}],"max_tokens":512}' \
             | python3 -m json.tool
 
         echo "[healthcheck] Anthropic /v1/messages"
@@ -50,7 +50,7 @@ case "${1:-}" in
             -H "x-api-key: $LITELLM_MASTER_KEY" \
             -H "anthropic-version: 2023-06-01" \
             -H "Content-Type: application/json" \
-            -d '{"model":"minimax-m2.5","max_tokens":32,"messages":[{"role":"user","content":"say hi in 3 words"}]}' \
+            -d '{"model":"minimax-m2.5","max_tokens":512,"messages":[{"role":"user","content":"say hi in 3 words"}]}' \
             | python3 -m json.tool
         ;;
     *)
