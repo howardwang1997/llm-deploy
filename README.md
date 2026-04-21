@@ -38,15 +38,16 @@ llm-deploy/
 │   ├── vllm-minimax.service
 │   └── litellm-gateway.service
 └── docs/
-    ├── setup.md             # 首次部署从零到跑通
-    ├── operate.md           # 日常运维、日志、查询语料、管理 API key
-    └── clients.md           # Claude Code / OpenCode / SDK / curl 接入示例
+    ├── setup.md                  # 首次部署从零到跑通
+    ├── operate.md                # 日常运维、日志、查询语料、管理 API key
+    ├── clients.md                # Claude Code / OpenCode / SDK / curl 接入示例
+    └── opencode-onboarding.md    # 给 OpenCode 使用者的零到跑通指南
 ```
 
 ## 快速上手
 
 1. 按 [`docs/setup.md`](docs/setup.md) 从零装一遍（建用户 → 建目录 → 装系统包 → 填 env → 初始化 Postgres → 装 Python 依赖 → 起 systemd → 跑 e2e 探活）。
-2. 服务起来之后，在另一台局域网机器上按 [`docs/clients.md`](docs/clients.md) 配 Claude Code / OpenCode / SDK。
+2. 服务起来之后，在另一台局域网机器上按 [`docs/clients.md`](docs/clients.md) 配 Claude Code / OpenCode / SDK。OpenCode 用户也可以按 [`docs/opencode-onboarding.md`](docs/opencode-onboarding.md) 从装 Node.js 开始一步步跑通。
 3. 日常运维（查日志、查语料、签发子 key、升级）见 [`docs/operate.md`](docs/operate.md)。
 
 ## 必须满足的前提
